@@ -6,7 +6,7 @@
 
 ## What is USP?
 
-USP is an attempt to create a user-friendly ZSH based shell configuration framework. It's loosely inspired by the likes of [ohmyzsh]() and [zsh4humans]() but attempts to leave as much up to the user as possible, with a focus on structuring dotfiles in a logical way.
+USP is an attempt to create a user-friendly ZSH based shell configuration framework. It's loosely inspired by the likes of [ohmyzsh](https://github.com/ohmyzsh/ohmyzsh) and [zsh4humans](https://github.com/romkatv/zsh4humans) but attempts to leave as much up to the user as possible, with a focus on structuring dotfiles in a logical way.
 
 It consists of the following elements:
 
@@ -45,8 +45,8 @@ cd profile
 git init .
 touch dotfiles/global/zshrc.zsh
 git add dotfiles/global/zshrc.zsh
-git submodule add --depth=1 -b master USP_LOCATION_HERE usp
-git submodule add --depth=1 https://github.com/romkatv/powerlevel10k.git external/powerlevel10k
+git submodule add --depth=1 -b master https://github.com/jstm88/usp.git usp
+git submodule add --depth=1 -b master https://github.com/romkatv/powerlevel10k.git external/powerlevel10k
 git add .gitmodules
 git commit -m "Initial Profile"
 # Add remote and push to your private repository
