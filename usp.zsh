@@ -35,6 +35,21 @@
 
 
 
+# Store timing zero reference
+# Note: on MacOS, `gdate` must be installed via the Homebrew `coreutils`package.
+# If the correct package is installed, then the variable will hold milliseconds.
+# If not, then it will be seconds with "3N" appended, which will need to be
+# stripped. This will be handled by the USP timing functions.
+# Also note: this function is copied from core.zsh to allow timing to begin at
+# initial load. I'd like to do this some other way in the future.
+if hash gdate 2>/dev/null; then
+	USP_LOAD_START_MS=$(gdate +%s%3N)
+else
+	USP_LOAD_START_MS=$(date +%s%3N)
+fi
+
+
+
 # Set up Default Environment and Settings
 # =============================================================================
 
@@ -49,12 +64,13 @@ typeset -A _usp_debug_map=([off]=0 [print]=1 [err]=2 [warn]=3 [info]=4)
 (( ! ${+_usp_debug_map[${USP_DEBUG}]} )) && USP_DEBUG="err"
 
 # Main Paths and Root Directory
-USP_SELF=${${(%):-%x}:A} # This file
-USP_ROOT=${USP_SELF:h}   # Parent directory
+USP_SELF=${${(%):-%x}:A}
+USP_ROOT=${USP_SELF:h}
+USP_LIB_ROOT="${USP_ROOT}/lib"
 
 # Profile and Dotfiles
-PROFILE_ROOT=${PROFILE_ROOT:=${USP_ROOT:h}} # Parent directory of usp
-DOTFILES_ROOT=${DOTFILES_ROOT:="${PROFILE_ROOT}/dotfiles"} # Default
+PROFILE_ROOT=${PROFILE_ROOT:=${USP_ROOT:h}}
+DOTFILES_ROOT=${DOTFILES_ROOT:="${PROFILE_ROOT}/dotfiles"}
 
 # powerlevel10k
 USP_P10K_ENABLE=${USP_P10K_ENABLE:=1}
@@ -62,7 +78,7 @@ USP_P10K_ROOT=${USP_P10K_ROOT:="${PROFILE_ROOT}/external/powerlevel10k"}
 USP_P10K_CONF=${USP_P10K_CONF:="${USP_ROOT}/lib/p10k.zsh"}
 
 # Path and Other Configuration Items
-typeset -U path # Make path elements unique
+typeset -U path
 USP_LOG_PREFIX=${USP_LOG_PREFIX:="| "}
 typeset -T DOTFILES_LOCAL _dotfiles_local :
 typeset -Ua _dotfiles_local
@@ -86,295 +102,25 @@ fi
 
 
 
-# USP Internal Helper Functions and Extras
-# =============================================================================
-
-typeset -A _usp_color_table=(
-	[nc]='0'
-	[head]='1;36'   # bold cyan
-	[strong]='1;37' # bold white
-	[weak]='2'      # gray
-	[err]='0;31'    # red
-	[warn]='0;33'   # orange
-	[info]='0;36'   # cyan
-	[ok]='0;32'     # green
-)
-
-# Get the color for a given key
-# Return "no color" code if no parameter is given
-# Return nothing if parameter is invalid
-_usp_color() {
-	local cprefix='\e[' # \033[]
-	local col_str=${1:='nc'}
-	(( ! ${+_usp_color_table[${col_str:l}]} )) && return 1
-	local col_code="${cprefix}${_usp_color_table[${col_str:l}]}m"
-	echo $col_code
-}
-
-# Log at the specified level
-# Anything at or more severe than the
-# level of $USP_DEBUG will get through
-_usp_log() {
-	if [[ $# -eq 1 ]]; then
-		_usp_log info "$1"
-		return 0
-	elif [[ $# -eq 0 ]]; then
-		_usp_log err "USP log called with no arguments."
-		return 1
-	fi
-
-	local log_val=${_usp_debug_map[$1]}
-	if [[ ! -n "$log_val" ]]; then
-		echo "USP log called with improper type $1"
-		return 1
-	fi
-
-	if [[ ${log_val} -le ${_usp_debug_map[$USP_DEBUG]} ]]; then
-		echo "${USP_LOG_PREFIX}${2}$(_usp_color)"
-	fi
-}
-
-# Strip only the home directory from the beginning of a path
-_usp_strip_homedir() {
-	echo "${1/#$HOME/$(_usp_color weak)~$(_usp_color)}"
-}
-
-# Clean up a path by replacing anything that can be replaced, including the home dir
-# Consider allowing this to be disabled by a setting
-_usp_clean_path() {
-	local CPATH="$1"
-	CPATH="${CPATH/#$DOTFILES_ROOT/$(_usp_color weak)\$DOTFILES_ROOT$(_usp_color)}"
-	CPATH="${CPATH/#$USP_ROOT/$(_usp_color weak)\$USP_ROOT$(_usp_color)}"
-	CPATH="${CPATH/#$PROFILE_ROOT/$(_usp_color weak)\$PROFILE_ROOT$(_usp_color)}"
-	CPATH=$(_usp_strip_homedir $CPATH)
-	echo "$CPATH"
-}
-
-# Load an RC file and log its result
-_usp_source() {
-	FILE="$1"
-	if [[ -f "$FILE" ]]; then
-		_usp_log info "$(_usp_color ok)Loading $(_usp_color)$(_usp_clean_path $FILE)"
-		source $FILE
-	else
-		_usp_log warn "$(_usp_color warn)No file $(_usp_color)$(_usp_clean_path $FILE)"
-	fi
-}
-
-# Append an element to the $PATH variable
-# In ZSH, $PATH is tied to the $path array
-# To add to end, `path+=(~/foo)`
-# To add to beginning, `path=(~/foo "$path[@]")` or `path[1,0]=~/foo`
-# As long as `typeset -U path` is used, items will be unique
-_usp_path_prepend() {
-	if [[ -d "$1" ]]; then
-		path[1,0]="$1"
-		_usp_log info "$(_usp_color info)Prepended to PATH: $(_usp_color)$(_usp_clean_path $1)"
-	else
-		_usp_log warn "$(_usp_color warn)Path does not exist: $(_usp_color)$(_usp_clean_path $1)"
-	fi
-}
-
-_usp_path_append() {
-	if [[ -d "$1" ]]; then
-		path+="$1"
-		_usp_log info "$(_usp_color info)Appended to PATH: $(_usp_color)$(_usp_clean_path $1)"
-	else
-		_usp_log warn "$(_usp_color warn)Path does not exist: $(_usp_color)$(_usp_clean_path $1)"
-	fi
-}
-
-_usp_plugin_path_prepend() {
-	if [[ -d "$1" ]]; then
-		_usp_plugin_path[1,0]="$1"
-		_usp_log info "$(_usp_color info)Prepended to plugin path: $(_usp_color)$(_usp_clean_path $1)"
-	else
-		_usp_log warn "$(_usp_color warn)Path does not exist: $(_usp_color)$(_usp_clean_path $1)"
-	fi
-}
-_usp_plugin_path_append() {
-	if [[ -d "$1" ]]; then
-		_usp_plugin_path+="$1"
-		_usp_log info "$(_usp_color info)Appended to plugin path: $(_usp_color)$(_usp_clean_path $1)"
-	else
-		_usp_log warn "$(_usp_color warn)Path does not exist: $(_usp_color)$(_usp_clean_path $1)"
-	fi
-}
-
-# Get the system uname lowercased
-_usp_get_uname() {
-	UN=$(uname -s)
-	echo ${UN:l}
-}
-
-# Get the system hostname lowercased
-_usp_get_hostname() {
-	HN=$(hostname -s)
-	echo ${HN:l}
-}
-
-# Check if the function, variable, or alias we're about
-# to add will clobber an existing one.
-# Usage: usp_clobbercheck NAME [TYPE]
-# where TYPE = func, alias, var
-_usp_clobbercheck() {
-	[[ -n $1 ]] || return 0
-	local _dbg_out() {
-		_usp_log err "$(_usp_color err)Warning:$(_usp_color) \"$1\" will clobber an existing $2"
-	}
-	local _check() {
-		if [[ "$2" == "func" && ${(k)functions[(Ie)$1]} ]]; then
-			_dbg_out "$1" "$2"
-			return 1
-		fi
-		if [[ "$2" == "alias" && ${(k)aliases[(Ie)$1]} ]]; then
-			_dbg_out "$1" "$2"
-			return 1
-		fi
-		if [[ "$2" == "var" && ${(k)parameters[(Ie)$1]} ]]; then
-			_dbg_out "$1" "$2"
-			return 1
-		fi
-		return 0
-	}
-	local types=("func" "alias" "var")
-	if [[ -n $2 ]]; then
-		if (( $types[(Ie)$2] )); then
-			_check "$1" "$2"
-			return $?
-		else
-			echo "Invalid type"
-			return 1
-		fi
-	fi
-	for type in $types; do
-		_check "$1" "$type"
-		local RES=$?
-		[[ $RES -ne 0 ]] && return $RES
-	done
-}
-
-# Reload the shell
-# If the debug option is specified, set debug to info before reloading
-_usp_reload() {
-	if [[ $# -gt 0 && "${1}" == '-d' || "${1}" == '--debug' ]]; then
-		export USP_DEBUG_OVERRIDE=info
-		exec zsh
-	else
-		exec zsh
-	fi
-}
-
-# Set or display the debug level
-# If an argument is provided, set
-# If no argument is provided, print
-_usp_cmd_debug() {
-	if [[ $# -gt 0 ]]; then
-		local new_level=${1:l}
-		if (( ${+_usp_debug_map[$new_level]} )); then
-			export USP_DEBUG="$new_level"
-			return
-		else
-			echo "Invalid debug level \"$new_level\""
-		fi
-	else
-		echo "Current debug level: \"$USP_DEBUG\""
-	fi
-}
-
-# Optional: cleanup the global functions once the rc file is loaded
-# usp_rc_functions_cleanup() {
-# 	unset -f usp_log_debug
-# 	unset -f usp_rcload
-# 	unset -f usp_path_prepend
-# 	unset -f usp_path_append
-# 	unset -f usp_get_uname
-# 	unset -f usp_is_linux
-# 	unset -f usp_is_macos
-# 	unset -f usp_get_hostname
-# 	unset -f usp_rc_functions_cleanup
-# 	unset -f usp_clobbercheck
-# }
-
-
-
-# Show USP Environment Details
-# usp_log_debug "Environment Details"
-# usp_log_debug "==================x"
-USP_LOG_PREFIX="" _usp_log print "$(_usp_color head)Welcome to USP $(cat ${USP_ROOT}/VERSION)"
-_usp_log warn "$(_usp_color)Debug Level: $(_usp_color)${USP_DEBUG}"
-_usp_log info "$(_usp_color strong)- PROFILE_ROOT:  $(_usp_color)$(_usp_strip_homedir ${PROFILE_ROOT})"
-_usp_log info "$(_usp_color strong)- USP_ROOT:      $(_usp_color)$(_usp_strip_homedir ${USP_ROOT})"
-_usp_log info "$(_usp_color strong)- DOTFILES_ROOT: $(_usp_color)$(_usp_strip_homedir ${DOTFILES_ROOT})"
-_usp_log info "$(_usp_color strong)- USP_P10K_ROOT: $(_usp_color)$(_usp_strip_homedir ${USP_P10K_ROOT})"
-
-
-
-# DEPRECATION SHIMS
-# =============================================================================
-
-usp_rcload() {
-	_usp_log warn "$(_usp_color warn)DEPRECATED: $(_usp_color)usp_rcload; use usp-source instead"
-	usp-source "$@"
-}
-
-usp_path_prepend() {
-	_usp_log warn "$(_usp_color warn)DEPRECATED: $(_usp_color)usp_path_prepend"
-	_usp_path_prepend "$@"
-}
-
-usp_path_append() {
-	_usp_log warn "$(_usp_color warn)DEPRECATED: $(_usp_color)usp_path_append"
-	_usp_path_append "$@"
-}
-
-usp_clobbercheck() {
-	_usp_log warn "$(_usp_color warn)DEPRECATED: $(_usp_color)usp_clobbercheck; use usp-clobber-check"
-	_usp_clobbercheck "$@"
-}
-
-usp_is_linux() {
-	_usp_log warn "$(_usp_color warn)DEPRECATED: $(_usp_color)usp_is_linux; use usp-is-platform instead"
-	[[ $(_usp_get_uname) = 'linux' ]] && return 0
+# Load core USP components
+if [[ -f "${USP_LIB_ROOT}/core.zsh" ]]; then
+	source "${USP_LIB_ROOT}/core.zsh"
+else
+	echo "USP cannot find core functions!"
+	echo "Check that USP is installed correctly."
 	return 1
-}
+fi
 
-usp_is_macos() {
-	_usp_log warn "$(_usp_color warn)DEPRECATED: $(_usp_color)usp_is_macos; use usp-is-platform instead"
-	[[ $(_usp_get_uname) = 'darwin' ]] && return 0
-	return 1
-}
-
-usp_log_debug() {
-	_usp_log warn "$(_usp_color warn)DEPRECATED: $(_usp_color)usp_log_debug; use usp-log instead"
-	_usp_log "$@"
-}
+# Load shims for deprecated functions
+_usp_source "${USP_LIB_ROOT}/deprecated.zsh"
 
 
-
-# SHELL FILE API
-# =============================================================================
-
-# These functions are designed for use within your configuration files
-# and for plugins designed for USP.
-
-# Source a file
-usp-source() {
-	_usp_source "$@"
-}
-
-# Log errors
-usp-log() {
-	_usp_log "$@"
-}
 
 # Add to path
-usp-path() {
-	if [[ $# -eq 1 ]]; then
+_usp_path() {
+	if [[ $# -eq 0 ]]; then
 		print -R ${(j|:|)path}
-	elif [[ $# -eq 1 ]]; then
-		_usp_path_append "$@"
-	elif [[ $# -eq 2 ]]; then
+	else
 		local arg="$1"
 		shift
 		case $arg in
@@ -382,26 +128,19 @@ usp-path() {
 			prepend) _usp_path_prepend "$@" ;;
 			*) _usp_log warn "$(_usp_color warn)Warning: $(_usp_color)usp-path invalid mode" ;;
 		esac
-	else
-		_usp_log warn "$(_usp_color warn)No path provided to usp-path function"
 	fi
 }
 
-# Check for existing aliases, functions, or variables
-usp-clobber-check() {
-	_usp_clobbercheck "$@"
-}
-
 # Manage plugins
-# usp-plugin path append|prepend PATH
-# usp-plugin load NAME
+# _usp_plugin path append|prepend PATH
+# _usp_plugin load NAME
 # NOTE: There is a limitation with ZSH plugins
 # Until a better way is found, the path is generated explicitly
 # and not using `find` as with the list option. This is because
 # we are loading code and not just scanning directories. As such
 # the ZSH plugins must be named correctly. Otherwise, this can
 # be overcome by just using `usp-source` to load them directly.
-usp-plugin() {
+_usp_plugin() {
 	if [[ $# -gt 0 ]]; then
 		local cmd="${1:l}"; shift
 		if [[ "$cmd" == "path" && $# -eq 0 ]]; then
@@ -422,10 +161,10 @@ usp-plugin() {
 				local plug_path="${plugin_prefix}/${name}.zsh"
 				local plug_path_omz="${plugin_prefix}/${name}/${name}.plugin.zsh"
 				if [[ -f "$plug_path" ]]; then
-					usp-source "$plug_path"
+					usp source "$plug_path"
 					return 0
 				elif [[ -f "$plug_path_omz" ]]; then
-					usp-source "$plug_path_omz"
+					usp source "$plug_path_omz"
 					return 0
 				fi
 			done
@@ -448,9 +187,9 @@ usp-plugin() {
 }
 
 # Succeed (return 0) if the platform matches one of the arguments
-# Example: $(usp-is-platform linux darwin) passes on Linux and Mac
-# You can then do like `usp-is-platform linux && linux-specific-cmd`
-usp-is-platform() {
+# Example: $(_usp_is_platform linux darwin) passes on Linux and Mac
+# You can then do like `_usp_is_platform linux && linux-specific-cmd`
+_usp_is_platform() {
 	local my_plat=$(_usp_get_uname)
 	local test_plat
 	for test_plat in $@; do
@@ -476,30 +215,66 @@ usp-is-platform() {
 # usp plugin path append|prepend PATH
 # usp plugin load NAME
 # usp info (to be implemented)
+
+_USP_USAGESTR=$(cat <<-END
+Usage:
+    usp COMMAND    Run the specified command
+Commands:
+    reload
+    update
+    debug
+    path
+    plugin
+    source
+    log
+    clobbertest
+    is-platform
+    help
+Flags:
+    (none)
+END
+)
+
 usp() {
 	local ARG=$1
 	[[ $# -ge 1 ]] && shift
 	case "$ARG" in
-		help)
-			echo "No help available yet"
-			;;
 		reload)
 			_usp_reload "$@"
+			;;
+		update)
+			_usp_update "$@"
 			;;
 		debug)
 			_usp_cmd_debug "$@"
 			;;
 		path)
-			usp-path "$@"
+			_usp_path "$@"
 			;;
 		plugin)
-			usp-plugin "$@"
+			_usp_plugin "$@"
+			;;
+		source)
+			_usp_source "$@"
+			;;
+		log)
+			_usp_log "$@"
+			;;
+		clobbertest)
+			_usp_clobbercheck "$@"
+			;;
+		is-platform)
+			_usp_is_platform "$@"
 			;;
 		*)
-			echo "Invalid command"
+			echo "${_USP_USAGESTR}"
 			;;
 	esac
 }
+
+
+
+_usp_log_elapsed_load_time "Initial"
 
 
 
@@ -525,12 +300,9 @@ _usp_load_powerlevel10k() {
 }
 
 _usp_load_primary_dotfiles() {
-	usp-source "${DOTFILES_ROOT}/global/zshenv.zsh"
-	usp-source "${DOTFILES_ROOT}/global/zshrc.zsh"
-	usp-source "${DOTFILES_ROOT}/byplatform/`_usp_get_uname`/zshenv.zsh"
-	usp-source "${DOTFILES_ROOT}/byplatform/`_usp_get_uname`/zshrc.zsh"
-	usp-source "${DOTFILES_ROOT}/byhost/`_usp_get_hostname`/zshenv.zsh"
-	usp-source "${DOTFILES_ROOT}/byhost/`_usp_get_hostname`/zshrc.zsh"
+	usp source -q "${DOTFILES_ROOT}/zshrc.zsh"
+	usp source -q "${DOTFILES_ROOT}/byplatform/`_usp_get_uname`.zsh"
+	usp source -q "${DOTFILES_ROOT}/byhost/`_usp_get_hostname`.zsh"
 }
 
 _usp_load_local_dotfiles() {
@@ -539,7 +311,7 @@ _usp_load_local_dotfiles() {
 		for _local_dotfile in $_dotfiles_local; do
 			if [[ -f "$_local_dotfile" ]]; then
 				# usp_log_debug "Loading private RC file:"
-				usp_rcload "$_local_dotfile"
+				usp source "$_local_dotfile"
 			else
 				_usp_log "$(_usp_color err)Private RC file specified but not found: $(_usp_color)$_local_dotfile"
 			fi
@@ -623,6 +395,8 @@ _usp_load_local_dotfiles() {
 # 	unset USP_PREUPDATE_PWD;\
 # 	usp-reload\
 # "
+
+_usp_log_elapsed_load_time "Remainder"
 
 if [[ -v USP_DEBUG_PREVIOUS ]]; then
 	USP_DEBUG="${USP_DEBUG_PREVIOUS}"

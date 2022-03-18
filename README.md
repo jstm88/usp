@@ -39,12 +39,12 @@ Or you can set it up manually. An example setup can be created as follows:
 ```bash
 cd ~
 mkdir -p profile/bin
-mkdir -p profile/dotfiles/global
+mkdir -p profile/dotfiles
 mkdir -p profile/external
 cd profile
 git init .
-touch dotfiles/global/zshrc.zsh
-git add dotfiles/global/zshrc.zsh
+touch dotfiles/zshrc.zsh
+git add dotfiles/zshrc.zsh
 git submodule add --depth=1 -b master https://github.com/jstm88/usp.git usp
 git submodule add --depth=1 -b master https://github.com/romkatv/powerlevel10k.git external/powerlevel10k
 git add .gitmodules
@@ -106,7 +106,7 @@ To manually enable USP, just add the following line to your `~/.zshrc` file:
 source ~/profile/usp/usp.zsh
 ```
 
-Anything that was in the previous `.zshrc` can now be moved into the zshrc.zsh in `~/profile/dotfiles/global/zshrc.zsh`.
+Anything that was in the previous `.zshrc` can now be moved into the zshrc.zsh in `~/profile/dotfiles/zshrc.zsh`.
 
 On the Mac, you'll need to install [Homebrew](https://brew.sh) and a few dependencies. (These will need to be enumerated, and the bootstrap script will eventually handle it automatically.)
 
@@ -119,12 +119,9 @@ USP follows a logical progression when loading dotfiles. First, source `usp.zsh`
 3. The `usp-helpers.zsh` file is loaded to provide convenience functions
 4. If present, `powerlevel10k` is loaded.
 5. Dotfiles are loaded in the following order:
-	- dotfiles/global/zshenv.zsh
-	- dotfiles/global/zshrc.zsh
-	- dotfiles/byplatform/PLATFORM/zshenv.zsh
-	- dotfiles/byplatform/PLATFORM/zshrc.zsh
-	- dotfiles/byhost/HOSTNAME/zshenv.zsh
-	- dotfiles/byhost/HOSTNAME/zshrc.zsh
+	- dotfiles/zshrc.zsh
+	- dotfiles/byplatform/PLATFORM.zsh
+	- dotfiles/byhost/HOSTNAME.zsh
 6. Step 5 is repeated for the (varname_tbd) dotfile directory, if set and present
 7. Any files defined in `DOTFILES_LOCAL` are loaded
 8. USP helper functions are unloaded
@@ -144,14 +141,14 @@ In your `~/.zshrc` you can set a small number of USP configuration variables. Th
 ## Tree Structure for ~/profile/dotfiles
 
 Required:
-- `global`: configurations that apply to ZSH in general
-- `byplatform`: platform-specific configurations
-- `byhost`: host-specific configurations
+- `zshrc.zsh`: configurations that apply to ZSH in general
 
 Optional:
-- `bin`: standalone scripts
-- `lib`: library functions for shell scripts
-- `plugins`: additional scripts for zsh functions and configs
+- `byplatform/PLATFORM.zsh`: platform-specific configurations
+- `byhost/HOSTNAME.zsh`: host-specific configurations
+- `bin/*`: standalone scripts
+- `lib/*`: library functions for shell scripts
+- `plugins/*`: additional scripts for zsh functions and configs
 
 ### Using byplatform and byhost
 
@@ -160,16 +157,11 @@ Valid platforms are the output of `uname -s` lowercased. Currently used:
 - "darwin"
 - "linux"
 
-The path can be one of the following:
+If a file exists at `dotfiles/byplatform/PLATFORM.zsh` it will be sourced.
 
-- `PLATFORM/zshenv.zsh`
-- `PLATFORM/zshrc.zsh`
+Hosts behave the same way, but utilize the output of `hostname` and are stored in `dotfiles/byhost/HOSTNAME.zsh`
 
-They will be sourced in that order.
-
-Hosts behave the same way, but utilize the output of `hostname`
-
-The `zshenv.zsh` files should be used for environment setup where interactive scripts may want to break out the functionality at a later time. Otherwise, use `zshrc.zsh`.
+Currently only RC files are loaded. I decided separating the contents of `zshenv.zsh` and `zshrc.zsh` just didn't make sense for my use case. This may be reconsidered in the future.
 
 ### plugins & lib
 
